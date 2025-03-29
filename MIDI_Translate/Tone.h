@@ -4,25 +4,23 @@
 
 #ifndef TONE_H
 #define TONE_H
+#include <cstdint>
 
 
 class Tone {
 public:
-    bool on;
     int channel;
-    double frequency;
+    float frequency;
     int deltaTime;
     int velocity;
 
-    Tone(const bool on, const double frequency, const int deltaTime, const int velocity) {
-        this->on = on;
+    Tone(const float frequency, const int deltaTime, const int velocity) {
         this->channel = 0;
         this->frequency = frequency;
         this->deltaTime = deltaTime;
         this->velocity = velocity;
     }
-    Tone(const bool on, const int channel, const double frequency, const int deltaTime, const int velocity) {
-        this->on = on;
+    Tone(const int channel, const float frequency, const int deltaTime, const int velocity) {
         this->channel = channel;
         this->frequency = frequency;
         this->deltaTime = deltaTime;

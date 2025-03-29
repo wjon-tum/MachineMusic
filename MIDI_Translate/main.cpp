@@ -27,9 +27,9 @@ int computeNumberFromBytes(std::vector<int>);
 
 int computeTimeFromMidi(long, int, int);
 
-bool sendSerialData(const std::vector<std::string> &, const char*, int);
+bool sendSerialData(const std::vector<std::string> &, const char *, int);
 
-double computeFrequencyFromMidi(int);
+float computeFrequencyFromMidi(int);
 
 void readMidiEvents(int, int, const std::vector<unsigned char> &, Track &);
 
@@ -40,26 +40,29 @@ void failFileFormat();
 std::vector<char> HEADER_DATA = {0x4d, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06};
 std::vector<char> CHUNK_DATA = {0x4d, 0x54, 0x72, 0x6b};
 constexpr int A4 = 443;
-auto PORT = "/dev/ttyACM0";
 constexpr int BAUD = 115200;
+int LIMIT = 0xFFFF;
+auto PORT = "/dev/ttyACM0";
 
 
 int main(const int argc, char *argv[]) {
-    if (argc != 2) {
-        std::cerr << "Usage: " << argv[0] << " <Midi-File>" << std::endl;
+    if (argc < 2 || argc >= 4) {
+        std::cerr << "Usage: " << argv[0] << " <Midi-File> [<limit>]" << std::endl;
         return EXIT_FAILURE;
     }
 
+    if (argc == 3) {
+        LIMIT = atoi(argv[2]);
+    }
     auto track = Track();
     const std::vector<char> tmp = readFileToBuffer(argv[1]);
     const std::vector<unsigned char> data(tmp.begin(), tmp.end());
     const int length = verifyMidiHeader(data, track);
     readMidiEvents(22, length, data, track);
     computeTonesFromEvents(track);
-    std::vector<std::string> toneData = convertTrackToneData(track);
-    for (auto &tone: toneData) {
-        std::cout << tone << std::endl;
-    }
+    const std::vector<std::string> toneData = convertTrackToneData(track);
+
+    std::cout << "Done reading notes" << std::endl;
 
     if (sendSerialData(toneData, PORT, BAUD) < 1) {
         std::cerr << "Failed to send data to serial port" << std::endl;
@@ -159,12 +162,11 @@ void computeTonesFromEvents(Track &track) {
             const int status = midiEvent->statusByte & 0xF0;
             const int channel = midiEvent->statusByte & 0x0F;
             if (status == 0x80 || status == 0x90) {
-                const bool on = status == 0x90;
                 const int tone = midiEvent->dataBytes[0];
-                const double frequency = computeFrequencyFromMidi(tone);
-                const int velocity = midiEvent->dataBytes[1];
+                const float frequency = computeFrequencyFromMidi(tone);
+                const int velocity = status == 0x90 ? midiEvent->dataBytes[1] : 0;
                 const int deltaTime = computeTimeFromMidi(midiEvent->deltaTime, currentMPQN, track.ticksPerQuarter);
-                track.addTone(Tone(on, channel, frequency, deltaTime, velocity));
+                track.addTone(Tone(channel, frequency, deltaTime, velocity));
             }
         } else if (const auto metaEvent = dynamic_cast<MetaEvent *>(event.get())) {
             if (metaEvent->typeByte == 0x51) {
@@ -180,19 +182,18 @@ void computeTonesFromEvents(Track &track) {
 
 std::vector<std::string> convertTrackToneData(Track &track) {
     std::vector<std::string> data;
-
     for (const auto tone: track.tones) {
         std::ostringstream oss;
-        oss << "[" << tone.on << "," << tone.channel << "," << tone.frequency << ","
-                << tone.deltaTime << "," << tone.velocity << "] ";
+        oss << tone.channel << "," << tone.frequency << ","
+                << tone.deltaTime << "," << tone.velocity << " ";
         data.push_back(oss.str());
     }
 
     return data;
 }
 
-bool sendSerialData(const std::vector<std::string> &data, const char* port, const int baud) {
-    const int serial = open(port, O_RDWR| O_NOCTTY | O_SYNC);
+bool sendSerialData(const std::vector<std::string> &data, const char *port, const int baud) {
+    const int serial = open(port, O_RDWR | O_NOCTTY | O_SYNC);
     if (serial == -1) {
         std::cerr << "Error opening serial port " << port << std::endl;
         return false;
@@ -201,24 +202,24 @@ bool sendSerialData(const std::vector<std::string> &data, const char* port, cons
     struct termios tty;
     tcgetattr(serial, &tty);
     if (baud == 115200) {
-    cfsetospeed(&tty, B115200);
-    cfsetispeed(&tty, B115200);
+        cfsetospeed(&tty, B115200);
+        cfsetispeed(&tty, B115200);
     } else {
-    cfsetospeed(&tty, B9600);
-    cfsetispeed(&tty, B9600);
+        cfsetospeed(&tty, B9600);
+        cfsetispeed(&tty, B9600);
     }
 
     tcsetattr(serial, TCSANOW, &tty);
 
-    for (const auto &datan: data) {
-        write(serial, datan.c_str(), datan.size());
-        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    for (int i = 0; i < data.size() && i < LIMIT; i++) {
+        std::cout << "[" << data[i] << "]" << std::endl;
+        write(serial, data[i].c_str(), data[i].size());
+        std::this_thread::sleep_for(std::chrono::microseconds(50));
     }
     write(serial, "END ", 4);
 
     close(serial);
     return true;
-
 }
 
 std::vector<char> readFileToBuffer(const std::string &filename) {
@@ -270,8 +271,8 @@ int computeTimeFromMidi(const long deltaTime, const int mpqn, const int tpq) {
     return static_cast<int>(deltaTime * mpqn / (1000 * tpq));
 }
 
-double computeFrequencyFromMidi(const int note) {
-    return A4 * pow(2, (note - 69) / 12.0);
+float computeFrequencyFromMidi(const int note) {
+    return static_cast<float> (A4 * pow(2, (note - 69) / 12.0));
 }
 
 void failFileFormat() {
