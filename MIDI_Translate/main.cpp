@@ -6,6 +6,11 @@
 #include <string>
 #include <vector>
 
+#include <fcntl.h>
+#include <unistd.h>
+#include <termios.h>
+#include <thread>
+
 #include "MetaEvent.h"
 #include "MidiEvent.h"
 #include "Track.h"
@@ -22,7 +27,7 @@ int computeNumberFromBytes(std::vector<int>);
 
 int computeTimeFromMidi(long, int, int);
 
-bool sendSerialData(std::vector<std::string> &, int, int);
+bool sendSerialData(const std::vector<std::string> &, const char*, int);
 
 double computeFrequencyFromMidi(int);
 
@@ -35,7 +40,7 @@ void failFileFormat();
 std::vector<char> HEADER_DATA = {0x4d, 0x54, 0x68, 0x64, 0x00, 0x00, 0x00, 0x06};
 std::vector<char> CHUNK_DATA = {0x4d, 0x54, 0x72, 0x6b};
 constexpr int A4 = 443;
-constexpr int PORT = 0;
+auto PORT = "/dev/ttyACM0";
 constexpr int BAUD = 115200;
 
 
@@ -179,15 +184,41 @@ std::vector<std::string> convertTrackToneData(Track &track) {
     for (const auto tone: track.tones) {
         std::ostringstream oss;
         oss << "[" << tone.on << "," << tone.channel << "," << tone.frequency << ","
-                << tone.deltaTime << "," << tone.velocity << "]";
+                << tone.deltaTime << "," << tone.velocity << "] ";
         data.push_back(oss.str());
     }
 
     return data;
 }
 
-bool sendSerialData(std::vector<std::string> &data, int port, int baud) {
-    return false; //todo
+bool sendSerialData(const std::vector<std::string> &data, const char* port, const int baud) {
+    const int serial = open(port, O_RDWR| O_NOCTTY | O_SYNC);
+    if (serial == -1) {
+        std::cerr << "Error opening serial port " << port << std::endl;
+        return false;
+    }
+
+    struct termios tty;
+    tcgetattr(serial, &tty);
+    if (baud == 115200) {
+    cfsetospeed(&tty, B115200);
+    cfsetispeed(&tty, B115200);
+    } else {
+    cfsetospeed(&tty, B9600);
+    cfsetispeed(&tty, B9600);
+    }
+
+    tcsetattr(serial, TCSANOW, &tty);
+
+    for (const auto &datan: data) {
+        write(serial, datan.c_str(), datan.size());
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    write(serial, "END ", 4);
+
+    close(serial);
+    return true;
+
 }
 
 std::vector<char> readFileToBuffer(const std::string &filename) {
