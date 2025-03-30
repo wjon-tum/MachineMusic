@@ -9,5 +9,5 @@ void Track::addTone(const Tone &tone) {
 }
 
 void Track::addEvent(const Event &event) {
-    events.push_back(event.clone());
+    events.push_back(event);
 }

@@ -4,17 +4,29 @@
 
 #ifndef EVENT_H
 #define EVENT_H
-#include <memory>
 #include <vector>
 
 
 class Event {
 public:
-    long deltaTime;
+    int deltaTime;
+    int typeByte;
+    int length{};
     std::vector<int> dataBytes;
 
-    virtual ~Event() = default;
-    virtual std::shared_ptr<Event> clone() const = 0;
+
+    Event(const int deltaTime, const int typeByte, const int length, const std::vector<int> &dataBytes) {
+        this->deltaTime = deltaTime;
+        this->typeByte = typeByte;
+        this->length = length;
+        this->dataBytes = dataBytes;
+    }
+
+    Event(const int deltaTime, const int typeByte, const std::vector<int> &dataBytes) {
+        this->deltaTime = deltaTime;
+        this->typeByte = typeByte;
+        this->dataBytes = dataBytes;
+    }
 };
 
 

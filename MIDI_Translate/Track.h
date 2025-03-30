@@ -14,7 +14,7 @@
 class Track {
 public:
     std::vector<Tone> tones;
-    std::vector<std::shared_ptr<Event>> events;
+    std::vector<Event> events;
     int ticksPerQuarter;
 
     void addTone(const Tone &tone);

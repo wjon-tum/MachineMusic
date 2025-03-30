@@ -11,8 +11,7 @@
 #include <termios.h>
 #include <thread>
 
-#include "MetaEvent.h"
-#include "MidiEvent.h"
+#include "Event.h"
 #include "Track.h"
 
 std::vector<char> readFileToBuffer(const std::string &);
@@ -23,9 +22,9 @@ int verifyMidiHeader(const std::vector<unsigned char> &, Track &);
 
 int computeNumberFromBytes(std::initializer_list<unsigned char>);
 
-int computeNumberFromBytes(std::vector<int>);
+int computeNumberFromBytes(std::vector<int> &);
 
-int computeTimeFromMidi(long, int, int);
+int computeTimeFromMidi(double, double, double);
 
 bool sendSerialData(const std::vector<std::string> &, const char *, int);
 
@@ -108,8 +107,8 @@ void readMidiEvents(int from, int length, const std::vector<unsigned char> &data
 
     int runningStatus = 0;
     while (length > 0) {
-        long deltaTime = 0;
-        while (data[from] & 0x80) {
+        int deltaTime = 0;
+        while ((data[from] & 0x80) != 0) {
             deltaTime += data[from++] & 0x7F;
             deltaTime *= 128;
             length--;
@@ -121,7 +120,7 @@ void readMidiEvents(int from, int length, const std::vector<unsigned char> &data
             runningStatus = 0;
             const int llength = data[from + 2];
             const std::vector<int> dataBytes(data.begin() + from + 3, data.begin() + from + 3 + llength);
-            track.addEvent(MetaEvent(deltaTime, data[from + 1], llength, dataBytes));
+            track.addEvent(Event(deltaTime, data[from + 1], llength, dataBytes));
             if (data[from + 1] == 0x2F) {
                 break;
             }
@@ -136,13 +135,13 @@ void readMidiEvents(int from, int length, const std::vector<unsigned char> &data
         } else {
             if (runningStatus >= 0x80 && data[from] < 0x80) {
                 const std::vector<int> dataBytes(data.begin() + from, data.begin() + from + 2);
-                track.addEvent(MidiEvent(deltaTime, runningStatus, dataBytes));
+                track.addEvent(Event(deltaTime, runningStatus, dataBytes));
                 from += 2;
                 length -= 2;
             } else if (data[from] >= 0x80) {
                 runningStatus = data[from];
                 const std::vector<int> dataBytes(data.begin() + from + 1, data.begin() + from + 3);
-                track.addEvent(MidiEvent(deltaTime, runningStatus, dataBytes));
+                track.addEvent(Event(deltaTime, runningStatus, dataBytes));
                 from += 3;
                 length -= 3;
             } else {
@@ -154,29 +153,28 @@ void readMidiEvents(int from, int length, const std::vector<unsigned char> &data
 }
 
 void computeTonesFromEvents(Track &track) {
-    const std::vector<std::shared_ptr<Event> > events = track.events;
+    std::vector<Event> events = track.events;
 
     int currentMPQN = 500000;
-    for (const auto &event: events) {
-        if (const auto midiEvent = dynamic_cast<MidiEvent *>(event.get())) {
-            const int status = midiEvent->statusByte & 0xF0;
-            const int channel = midiEvent->statusByte & 0x0F;
-            if (status == 0x80 || status == 0x90) {
-                const int tone = midiEvent->dataBytes[0];
-                const float frequency = computeFrequencyFromMidi(tone);
-                const int velocity = status == 0x90 ? midiEvent->dataBytes[1] : 0;
-                const int deltaTime = computeTimeFromMidi(midiEvent->deltaTime, currentMPQN, track.ticksPerQuarter);
-                track.addTone(Tone(channel, frequency, deltaTime, velocity));
-            }
-        } else if (const auto metaEvent = dynamic_cast<MetaEvent *>(event.get())) {
-            if (metaEvent->typeByte == 0x51) {
-                //set tempo
-                if (!metaEvent->length & 0x80) {
-                    currentMPQN = computeNumberFromBytes(metaEvent->dataBytes);
-                }
-            }
-            //todo
+    for (Event &event: events) {
+        const int type = event.typeByte & 0xF0;
+        const int channel = event.typeByte & 0x0F;
+        if (type == 0x80 || type == 0x90) {
+            const int tone = event.dataBytes[0];
+            const float frequency = computeFrequencyFromMidi(tone);
+            const int velocity = type == 0x90 ? event.dataBytes[1] : 0;
+            const int deltaTime = computeTimeFromMidi(event.deltaTime, currentMPQN, track.ticksPerQuarter);
+            track.addTone(Tone(channel, frequency, deltaTime, velocity));
         }
+
+        if (event.typeByte == 0x51) {
+            //set tempo
+            if (event.length & 0x80 != 0) {
+                currentMPQN = computeNumberFromBytes(event.dataBytes);
+            }
+        }
+
+        //todo add cases
     }
 }
 
@@ -258,7 +256,7 @@ int computeNumberFromBytes(const std::initializer_list<unsigned char> numbers) {
     return res;
 }
 
-int computeNumberFromBytes(const std::vector<int> &numbers) {
+int computeNumberFromBytes(std::vector<int> &numbers) {
     int res = 0;
     for (const unsigned char n: numbers) {
         res = res * 256 + n;
@@ -267,12 +265,12 @@ int computeNumberFromBytes(const std::vector<int> &numbers) {
     return res;
 }
 
-int computeTimeFromMidi(const long deltaTime, const int mpqn, const int tpq) {
-    return static_cast<int>(deltaTime * mpqn / (1000 * tpq));
+int computeTimeFromMidi(const double deltaTime, const double mpq, const double tpq) {
+    return static_cast<int>(deltaTime * mpq / (1000 * tpq));
 }
 
 float computeFrequencyFromMidi(const int note) {
-    return static_cast<float> (A4 * pow(2, (note - 69) / 12.0));
+    return static_cast<float>(A4 * pow(2, (note - 69) / 12.0));
 }
 
 void failFileFormat() {
