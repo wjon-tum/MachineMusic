@@ -16,10 +16,16 @@ public:
     std::vector<Tone> tones;
     std::vector<Event> events;
     int ticksPerQuarter;
+    int number;
 
     void addTone(const Tone &tone);
 
     void addEvent(const Event &event);
+
+    Track() = default;
+    Track(const int number) {
+        this->number = number;
+    }
 };
 
 

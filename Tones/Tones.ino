@@ -1,17 +1,17 @@
 #include "Note.h"
 
+
 #define LED_PIN 4
 #define BUZ_PIN 6
+#define SPK_PIN 8
 
 void serialToNotes(String);
-void playNotes(int, int);
+void playNotes(std::vector<int>);
 
 std::vector<Note> notes;
 
 void setup() {
   Serial.begin(115200);
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(BUZ_PIN, OUTPUT);
 
   while (true) {
     while (Serial.available() == 0) {}
@@ -22,9 +22,8 @@ void setup() {
     serialToNotes(s);
   }
 
-  tone(BUZ_PIN, 443);
-  delay(1000);
-  noTone(BUZ_PIN);
+  ledcAttachChannel(SPK_PIN, 440, 8, 1);
+  ledcAttachChannel(BUZ_PIN, 440, 8, 2);
 
   delay(2000);
   for (Note n : notes) {
@@ -34,8 +33,8 @@ void setup() {
 }
 
 void loop() {
-  playNotes(0, BUZ_PIN);
-  delay(60000);
+  playNotes({ BUZ_PIN, SPK_PIN });
+  delay(6000);
 }
 
 void serialToNotes(String s) {
@@ -55,21 +54,19 @@ void serialToNotes(String s) {
   endIndex = s.indexOf(delimiter, startIndex);
   int velocity = s.substring(startIndex, endIndex).toInt();
 
-  notes.push_back(Note((byte) channel, frequency, deltaTime, (byte) velocity));
+  notes.push_back(Note((byte)channel, frequency, deltaTime, (byte)velocity));
 }
 
-void playNotes(int channel, int pin) {
+void playNotes(std::vector<int> pins) {
   for (Note n : notes) {
-    if (n.channel != channel) {
+    if (n.channel >= pins.size()) {
       continue;
     }
     delay(n.deltaTime);
     if (n.velocity > 0) {
-      tone(pin, n.frequency);
+      ledcWriteTone(pins[n.channel], n.frequency);
     } else {
-      noTone(pin);
+      ledcWriteTone(pins[n.channel], 0);
     }
   }
-
-  noTone(pin);
 }
